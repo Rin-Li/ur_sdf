@@ -8,6 +8,18 @@ d = [0.15185, 0, 0, 0.13105, 0.08535, 0.0921]
 alpha = [np.pi / 2, 0.0, 0.0, np.pi / 2, -np.pi / 2, 0.0]
 theta_min = [-6.283, -6.283, -6.283, -6.283, -6.283, -6.283]
 theta_max = [6.283, 6.283, 6.283, 6.283, 6.283, 6.283]
+# UR 3e visual offsets
+offsets = {
+        "base":      [0.0, 0.0, 0.0, 0.0, 0.0, np.pi],
+        "shoulder":  [0.0, 0.0, 0.0, 0.0, 0.0, np.pi],
+        "upperarm":  [0.0, 0.0, 0.120, np.pi/2, 0.0, -np.pi/2],
+        "forearm":   [0.0, 0.0, 0.027, np.pi/2, 0.0, -np.pi/2],
+        "wrist1":    [0.0, 0.0, -0.104, np.pi/2, 0.0, 0.0],
+        "wrist2":    [0.0, 0.0, -0.08535, 0.0, 0.0, 0.0],
+        "wrist3":    [0.0, 0.0, -0.0921, np.pi/2, 0.0, 0.0],
+    }
+# Link order for UR3e
+link_order = ['base', 'shoulder', 'upperarm', 'forearm', 'wrist1', 'wrist2', 'wrist3']
 
 class URRobot(torch.nn.Module):
     def __init__(self, device='cpu', mesh_path='ur3e/model/'):
@@ -15,150 +27,84 @@ class URRobot(torch.nn.Module):
         self.device = device
         self.mesh_path = mesh_path
         self.meshes = self.load_mesh()
-        
-        self.base = self.meshes['base'][0]
-        self.base_normals = self.meshes['base'][2]
-        
-        self.shoulder = self.meshes['shoulder'][0]
-        self.shoulder_normals = self.meshes['shoulder'][2]
-        
-        self.forearm = self.meshes['forearm'][0]
-        self.forearm_normals = self.meshes['forearm'][2]
-        
-        self.upperarm = self.meshes['upperarm'][0]
-        self.upperarm_normals = self.meshes['upperarm'][2]
-        
-        self.wrist1 = self.meshes['wrist1'][0]
-        self.wrist1_normals = self.meshes['wrist1'][2]
-        self.wrist2 = self.meshes['wrist2'][0]
-        self.wrist2_normals = self.meshes['wrist2'][2]
-        self.wrist3 = self.meshes['wrist3'][0]
-        self.wrist3_normals = self.meshes['wrist3'][2]
-        
-        self.robot_faces = [
-            self.meshes['base'][1], 
-            self.meshes['shoulder'][1],
-            self.meshes['forearm'][1], 
-            self.meshes['upperarm'][1],
-            self.meshes['wrist1'][1], 
-            self.meshes['wrist2'][1],
-            self.meshes['wrist3'][1]
-        ]
-
-
+        self.robot, self.robot_faces, self.robot_normals = zip(*[
+            self.meshes[link] for link in link_order if link in self.meshes
+        ])
     
+    def visual_offset(self, name, batch_size=1):
+        x, y, z, roll, pitch, yaw = offsets[name]
+        dtype = torch.float32
+        device = self.device
+
+        Rx = torch.tensor([
+            [1, 0, 0, 0],
+            [0, np.cos(roll), -np.sin(roll), 0],
+            [0, np.sin(roll),  np.cos(roll), 0],
+            [0, 0, 0, 1]
+        ], dtype=dtype, device=device)
+
+        Ry = torch.tensor([
+            [np.cos(pitch), 0, np.sin(pitch), 0],
+            [0, 1, 0, 0],
+            [-np.sin(pitch), 0, np.cos(pitch), 0],
+            [0, 0, 0, 1]
+        ], dtype=dtype, device=device)
+
+        Rz = torch.tensor([
+            [np.cos(yaw), -np.sin(yaw), 0, 0],
+            [np.sin(yaw),  np.cos(yaw), 0, 0],
+            [0, 0, 1, 0],
+            [0, 0, 0, 1]
+        ], dtype=dtype, device=device)
+
+        T = torch.tensor([
+            [1, 0, 0, x],
+            [0, 1, 0, y],
+            [0, 0, 1, z],
+            [0, 0, 0, 1]
+        ], dtype=dtype, device=device)
+
+        single_T = T @ Rz @ Ry @ Rx
+        return single_T.unsqueeze(0).repeat(batch_size, 1, 1)
+        
+    # Get the transformation matrix for each link vertices and normal
+    def get_transformation_vertices_normals(self, vertices, normals, T, batch_size):
+        vertices = vertices.repeat(batch_size, 1, 1)
+        normals = normals.repeat(batch_size, 1, 1)
+        vertices = torch.matmul(T, vertices.transpose(2, 1)).transpose(1, 2)[:, :, :3]
+        normals = torch.matmul(T, normals.transpose(2, 1)).transpose(1, 2)[:, :, :3]
+        return vertices, normals
+    
+    # Forward for UR
     def forward(self, pose, theta):
+        
         batch_size = theta.shape[0]
-        base_vertices = self.base.repeat(batch_size, 1, 1)
-        base_vertices = torch.matmul(pose,
-                                      base_vertices.transpose(2, 1)).transpose(1, 2)[:, :, :3]
-        base_normals = self.base_normals.repeat(batch_size, 1, 1)
-        base_normals = torch.matmul(pose,
-                                      base_normals.transpose(2, 1)).transpose(1, 2)[:, :, :3]
-        shoulder_vertices = self.shoulder.repeat(batch_size, 1, 1)
-        forearm_vertices = self.forearm.repeat(batch_size, 1, 1)
-        upperarm_vertices = self.upperarm.repeat(batch_size, 1, 1)
-        wrist1_vertices = self.wrist1.repeat(batch_size, 1, 1)
-        wrist2_vertices = self.wrist2.repeat(batch_size, 1, 1)
-        wrist3_vertices = self.wrist3.repeat(batch_size, 1, 1)
-        
         T = self.get_transformations_each_link(pose, theta)
-        
-        shoulder_vertices = torch.matmul(T[1], shoulder_vertices.transpose(2, 1)).transpose(1, 2)[:, :, :3]
-        shoulder_normals = self.shoulder_normals.repeat(batch_size, 1, 1)
-        shoulder_normals = torch.matmul(T[1], shoulder_normals.transpose(2, 1)).transpose(1, 2)[:, :, :3]
-        
-        forearm_vertices = torch.matmul(T[2], forearm_vertices.transpose(2, 1)).transpose(1, 2)[:, :, :3]
-        forearm_normals = self.forearm_normals.repeat(batch_size, 1, 1)
-        forearm_normals = torch.matmul(T[2], forearm_normals.transpose(2, 1)).transpose(1, 2)[:, :, :3]
-        
-        
-        upperarm_vertices = torch.matmul(T[3], upperarm_vertices.transpose(2, 1)).transpose(1, 2)[:, :, :3]
-        upperarm_normals = self.upperarm_normals.repeat(batch_size, 1, 1)
-        upperarm_normals = torch.matmul(T[3], upperarm_normals.transpose(2, 1)).transpose(1, 2)[:, :, :3]
-        
-        
-        
-        wrist1_vertices = torch.matmul(T[4], wrist1_vertices.transpose(2, 1)).transpose(1, 2)[:, :, :3]
-        wrist1_normals = self.wrist1_normals.repeat(batch_size, 1, 1)
-        wrist1_normals = torch.matmul(T[4], wrist1_normals.transpose(2, 1)).transpose(1, 2)[:, :, :3]
-        wrist2_vertices = torch.matmul(T[5], wrist2_vertices.transpose(2, 1)).transpose(1, 2)[:, :, :3]
-        wrist2_normals = self.wrist2_normals.repeat(batch_size, 1, 1)
-        wrist2_normals = torch.matmul(T[5], wrist2_normals.transpose(2, 1)).transpose(1, 2)[:, :, :3]
-        wrist3_vertices = torch.matmul(T[6], wrist3_vertices.transpose(2, 1)).transpose(1, 2)[:, :, :3]
-        wrist3_normals = self.wrist3_normals.repeat(batch_size, 1, 1)
-        wrist3_normals = torch.matmul(T[6], wrist3_normals.transpose(2, 1)).transpose(1, 2)[:, :, :3]
-        
-        return [base_vertices, shoulder_vertices, forearm_vertices,  upperarm_vertices,
-                wrist1_vertices, wrist2_vertices, wrist3_vertices,
-                base_normals, shoulder_normals, forearm_normals, upperarm_normals, 
-                wrist1_normals, wrist2_normals, wrist3_normals]
-        
-        
+        transformation_vertices, transformation_normals = zip(*[
+            self.get_transformation_vertices_normals(self.robot[idx], self.robot_normals[idx], T[idx], batch_size)
+            for idx in range(len(self.robot))
+        ])
+
+        return transformation_vertices + transformation_normals
         
     # Transformations matrix
     def get_transformations_each_link(self,pose, theta):
         batch_size = theta.shape[0]
-        T01 = self.forward_kinematics(A[0], torch.tensor(alpha[0], dtype=torch.float32, device=self.device),
-                                        d[0], theta[:, 0], batch_size).float()
-
-        T12 = self.forward_kinematics(A[1], torch.tensor(alpha[1], dtype=torch.float32, device=self.device),
-                                        d[1], theta[:, 1], batch_size).float()
-        T23 = self.forward_kinematics(A[2], torch.tensor(alpha[2], dtype=torch.float32, device=self.device),
-                                        d[2], theta[:, 2], batch_size).float()
-        T34 = self.forward_kinematics(A[3], torch.tensor(alpha[3], dtype=torch.float32, device=self.device),
-                                        d[3], theta[:, 3], batch_size).float()
-        T45 = self.forward_kinematics(A[4], torch.tensor(alpha[4], dtype=torch.float32, device=self.device),
-                                        d[4], theta[:, 4], batch_size).float()
-        T56 = self.forward_kinematics(A[5], torch.tensor(alpha[5], dtype=torch.float32, device=self.device),
-                                        d[5], theta[:, 5], batch_size).float()
-
-        pose_to_Tw0 = pose
-        pose_to_T01 = torch.matmul(pose_to_Tw0, T01)
-        pose_to_T12 = torch.matmul(pose_to_T01, T12)
-        pose_to_T23 = torch.matmul(pose_to_T12, T23)
-        pose_to_T34 = torch.matmul(pose_to_T23, T34)
-        pose_to_T45 = torch.matmul(pose_to_T34, T45)
-        pose_to_T56 = torch.matmul(pose_to_T45, T56)
-
-        return [pose_to_Tw0,pose_to_T01,pose_to_T12,pose_to_T23,pose_to_T34,pose_to_T45,pose_to_T56]
+        T_prev_to_cur = []
+        for idx in range(6):
+            T_prev_to_cur.append(self.forward_kinematics(A[idx], torch.tensor(alpha[idx], dtype=torch.float32, device=self.device),
+                                        d[idx], theta[:, idx], batch_size).float())        
+        pose_to_each_link = [pose]
+        for i in range(6):
+            pose_to_each_link.append(torch.matmul(pose_to_each_link[i], T_prev_to_cur[i]))
+        
+        return pose_to_each_link
     
     def get_robot_mesh(self, vertices_list, face):
-        base_verts = vertices_list[0]
-        base_faces = face[0]
-        
-        
-        shoulder_verts = vertices_list[1]
-        shoulder_faces = face[1]
-        
-        upperarm_verts = vertices_list[2]
-        upperarm_faces = face[2]
-        
-        forearm_verts = vertices_list[3]
-        forearm_faces = face[3]
-        
-        
-        wrist1_verts = vertices_list[4]
-        wrist1_faces = face[4]
-        wrist2_verts = vertices_list[5]
-        wrist2_faces = face[5]
-        wrist3_verts = vertices_list[6]
-        wrist3_faces = face[6]
-        
-        
-        base_mesh = trimesh.Trimesh(vertices=base_verts, faces=base_faces)
-        shoulder_mesh = trimesh.Trimesh(vertices=shoulder_verts, faces=shoulder_faces)
-        forearm_mesh = trimesh.Trimesh(vertices=forearm_verts, faces=forearm_faces)
-        upperarm_mesh = trimesh.Trimesh(vertices=upperarm_verts, faces=upperarm_faces)
-        wrist1_mesh = trimesh.Trimesh(vertices=wrist1_verts, faces=wrist1_faces)
-        wrist2_mesh = trimesh.Trimesh(vertices=wrist2_verts, faces=wrist2_faces)
-        wrist3_mesh = trimesh.Trimesh(vertices=wrist3_verts, faces=wrist3_faces)
-        
-        robot_mesh = [
-            base_mesh, shoulder_mesh, forearm_mesh, upperarm_mesh,
-            wrist1_mesh, wrist2_mesh, wrist3_mesh
-        ]
-        
+        robot_mesh = []
+        for i in range(len(vertices_list)):
+            mesh = trimesh.Trimesh(vertices=vertices_list[i], faces=face[i])
+            robot_mesh.append(mesh)
         return robot_mesh
     
     # DH transformation matrix for each link
