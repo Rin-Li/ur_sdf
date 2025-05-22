@@ -3,6 +3,10 @@ import trimesh
 import numpy as np
 import os
 #UR 3e DH parameters
+# A = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+# d = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+# alpha = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+
 A = [0.0, -0.24355, -0.2131, 0.0, 0.0, 0.0]
 d = [0.15185, 0, 0, 0.13105, 0.08535, 0.0921]
 alpha = [np.pi / 2, 0.0, 0.0, np.pi / 2, -np.pi / 2, 0.0]
@@ -11,8 +15,8 @@ theta_max = [6.283, 6.283, 6.283, 6.283, 6.283, 6.283]
 # UR 3e visual offsets
 offsets = {
         "base":      [0.0, 0.0, 0.0, 0.0, 0.0, np.pi],
-        "shoulder":  [0.0, 0.0, 0.0, 0.0, 0.0, np.pi],
-        "upperarm":  [0.0, 0.0, 0.120, np.pi/2, 0.0, -np.pi/2],
+        "shoulder":  [0.0, 0.0, 0.0, np.pi / 2, 0.0, np.pi],
+        "upperarm":  [0.0, 0.0, 0.120, np.pi/2, 0.0, -3 * np.pi/2],
         "forearm":   [0.0, 0.0, 0.027, np.pi/2, 0.0, -np.pi/2],
         "wrist1":    [0.0, 0.0, -0.104, np.pi/2, 0.0, 0.0],
         "wrist2":    [0.0, 0.0, -0.08535, 0.0, 0.0, 0.0],
@@ -65,12 +69,16 @@ class URRobot(torch.nn.Module):
         ], dtype=dtype, device=device)
 
         single_T = T @ Rz @ Ry @ Rx
+        # single_T = Rz @ Ry @ Rx
         return single_T.unsqueeze(0).repeat(batch_size, 1, 1)
         
     # Get the transformation matrix for each link vertices and normal
-    def get_transformation_vertices_normals(self, vertices, normals, T, batch_size):
+    def get_transformation_vertices_normals(self, vertices, normals, T, batch_size, name):
         vertices = vertices.repeat(batch_size, 1, 1)
         normals = normals.repeat(batch_size, 1, 1)
+        T_offset = self.visual_offset(name, batch_size)
+        # vertices = torch.matmul(torch.matmul(T, T_offset), vertices.transpose(2, 1)).transpose(1, 2)[:, :, :3]
+        # normals = torch.matmul(torch.matmul(T, T_offset), normals.transpose(2, 1)).transpose(1, 2)[:, :, :3]
         vertices = torch.matmul(T, vertices.transpose(2, 1)).transpose(1, 2)[:, :, :3]
         normals = torch.matmul(T, normals.transpose(2, 1)).transpose(1, 2)[:, :, :3]
         return vertices, normals
@@ -81,7 +89,7 @@ class URRobot(torch.nn.Module):
         batch_size = theta.shape[0]
         T = self.get_transformations_each_link(pose, theta)
         transformation_vertices, transformation_normals = zip(*[
-            self.get_transformation_vertices_normals(self.robot[idx], self.robot_normals[idx], T[idx], batch_size)
+            self.get_transformation_vertices_normals(self.robot[idx], self.robot_normals[idx], T[idx], batch_size, link_order[idx])
             for idx in range(len(self.robot))
         ])
 
@@ -146,13 +154,17 @@ class URRobot(torch.nn.Module):
         for mesh_file in mesh_files:
             full_path = os.path.join(self.mesh_path, mesh_file)
             mesh = trimesh.load(full_path)
-
             name = os.path.splitext(mesh_file)[0]
-            tmp = torch.ones(len(mesh.vertices), 1).float()
 
+            tmp = torch.ones(len(mesh.vertices), 1).float()
             vertices = torch.cat((torch.FloatTensor(mesh.vertices), tmp), dim=-1).to(self.device)
             normals = torch.cat((torch.FloatTensor(mesh.vertex_normals), tmp), dim=-1).to(self.device)
             faces = torch.LongTensor(mesh.faces).to(self.device)
+
+            if name in offsets:
+                T_offset = self.visual_offset(name, batch_size=1)[0]
+                vertices = (T_offset @ vertices.T).T
+                normals = (T_offset @ normals.T).T
 
             meshes[name] = [vertices, faces, normals]
 
