@@ -112,7 +112,7 @@ class BPSDF:
         verts, faces, *_ = skimage.measure.marching_cubes(sdf, 0.0,
                           spacing=np.array([(self.domain_max - self.domain_min) / nb] * 3))
         mesh = trimesh.Trimesh(verts - 1, faces)
-        if show: mesh.show()
+        # if show: mesh.show()
         mesh.export(out)
         print("🖨️  已保存重建网格 →", out)
 
@@ -127,4 +127,5 @@ if __name__ == "__main__":
 
     bp = BPSDF(n_func=args.n_func, domain_min=-1.0, domain_max=1.0, device=args.device)
     mdl = bp.train(args.stl, epochs=args.epochs)
-    bp.reconstruct_mesh(mdl, nb=128, out=CUR_DIR / "output_mesh.stl")
+    bp.reconstruct_mesh(mdl, nb=128, out="output_mesh.stl")
+    print("✅ Mesh saved to: /Users/yulinli/ur_sdf/output_meshes/output_mesh.stl")
