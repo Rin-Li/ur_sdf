@@ -6,19 +6,27 @@ import numpy as np
 theta_min = [-6.283] * 6
 theta_max = [ 6.283] * 6
 
-link_order = ['base', 'shoulder', 'upperarm', 'forearm',
-              'wrist1', 'wrist2', 'wrist3']
+link_order = ['base', 'shoulder', 'upperarm', 'forearm', 'wrist1', 'wrist2', 'wrist3']
 
 visual_offset = {
-            'base':     (0, 0, np.pi,            0, 0,       0),
-            'shoulder': (0, 0, np.pi,            0, 0,       0),
-            'upperarm': (np.pi/2, 0, -np.pi/2,   0, 0, 0.12),
-            'forearm':  (np.pi/2, 0, -np.pi/2,   0, 0, 0.027),
-            'wrist1':   (np.pi/2, 0, 0,          0, 0, -0.104),
-            'wrist2':   (0, 0, 0,                0, 0, -0.08535),
-            'wrist3':   (np.pi/2, 0, 0,          0, 0, -0.0921),
+            'base':     (0, 0, np.pi, 0, 0, 0),
+            'shoulder': (0, 0, np.pi, 0, 0, 0),
+            'upperarm': (np.pi/2, 0, -np.pi/2, 0, 0, 0.12),
+            'forearm':  (np.pi/2, 0, -np.pi/2, 0, 0, 0.027),
+            'wrist1':   (np.pi/2, 0, 0, 0, 0, -0.104),
+            'wrist2':   (0, 0, 0, 0, 0, -0.08535),
+            'wrist3':   (np.pi/2, 0, 0, 0, 0, -0.0921),
         }
 
+kinematic = {
+    'base'      : (0, 0, np.pi, 0, 0, 0),
+    'shoulder'  : (0, 0, 0, 0, 0, 0.15185),
+    'upperarm'  : (np.pi/2, 0, 0, 0, 0, 0),
+    'forearm'   : (0, 0, 0, -0.24355, 0, 0),
+    'wrist1'    : (0, 0, 0, -0.2132, 0, 0.13105),
+    'wrist2'    : (np.pi/2, 0, 0, 0, -0.08535, 0),
+    'wrist3'    : (np.pi/2, np.pi, np.pi, 0, 0.0921, 0),
+}
 
 class URRobot(torch.nn.Module):
     def __init__(self, device='cpu', mesh_path='ur3e/model/'):
@@ -66,23 +74,16 @@ class URRobot(torch.nn.Module):
         B = theta.size(0)
         Ts = [[] for _ in range(7)]
         for b in range(B):
-            q  = theta[b]
-            T0 = pose[b] @ self.T_origin(0, 0, np.pi, 0, 0, 0)
-            T01 = self.T_origin(0, 0, 0,           0,        0, 0.15185) @ self.Rz(q[0])
-            T12 = self.T_origin(np.pi/2, 0, 0,     0,        0, 0)       @ self.Rz(q[1])
-            T23 = self.T_origin(0, 0, 0,          -0.24355,  0, 0)       @ self.Rz(q[2])
-            T34 = self.T_origin(0, 0, 0,          -0.2132,   0, 0.13105) @ self.Rz(q[3])
-            T45 = self.T_origin(np.pi/2, 0, 0,     0, -0.08535, 0)       @ self.Rz(q[4])
-            T56 = self.T_origin(np.pi/2, np.pi, np.pi, 0, 0.0921, 0)     @ self.Rz(q[5])
-
-            T1 = T0 @ T01
-            T2 = T1 @ T12
-            T3 = T2 @ T23
-            T4 = T3 @ T34
-            T5 = T4 @ T45
-            T6 = T5 @ T56
-
-            for i, Ti in enumerate([T0, T1, T2, T3, T4, T5, T6]):
+            T_trans = [self.T_origin(*kinematic[link]) for link in link_order]
+            T_trans[0] = pose[b] @ T_trans[0]
+            # each link like T01 = T @ Rz(theta)
+            for idx in range(1, 7):
+                T_trans[idx] @= self.Rz(theta[b, idx-1])
+            # Transfor matrxi like T2 = T1 @ T12
+            T = [T_trans[0]]
+            for idx in range(1, 7):
+                T.append(T[idx - 1] @ T_trans[idx])
+            for i, Ti in enumerate(T):
                 Ts[i].append(Ti)
         return [torch.stack(t, 0) for t in Ts]
 
@@ -94,7 +95,7 @@ class URRobot(torch.nn.Module):
         return v, n
 
     def forward(self, pose, theta):
-        B      = theta.size(0)
+        B = theta.size(0)
         T_link = self.get_transformations_each_link(pose, theta)
         verts, norms = [], []
         for i, link in enumerate(link_order):
