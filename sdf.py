@@ -114,6 +114,7 @@ class BPSDF:
         mesh = trimesh.Trimesh(verts - 1, faces)
         # if show: mesh.show()
         mesh.export(out)
+        mesh.show()
         print("🖨️  已保存重建网格 →", out)
 
 # ==================================== CLI ====================================

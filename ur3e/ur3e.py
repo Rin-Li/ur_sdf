@@ -1,193 +1,159 @@
 import torch
 import trimesh
-import numpy as np
 import os
-#UR 3e DH parameters
-# A = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
-# d = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
-# alpha = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+import numpy as np
 
-A = [0.0, -0.24355, -0.2131, 0.0, 0.0, 0.0]
-d = [0.15185, 0, 0, 0.13105, 0.08535, 0.0921]
-alpha = [np.pi / 2, 0.0, 0.0, np.pi / 2, -np.pi / 2, 0.0]
-theta_min = [-6.283, -6.283, -6.283, -6.283, -6.283, -6.283]
-theta_max = [6.283, 6.283, 6.283, 6.283, 6.283, 6.283]
-# UR 3e visual offsets
-offsets = {
-        "base":      [0.0, 0.0, 0.0, 0.0, 0.0, np.pi],
-        "shoulder":  [0.0, 0.0, 0.0, np.pi / 2, 0.0, np.pi],
-        "upperarm":  [0.0, 0.0, 0.120, np.pi/2, 0.0, -3 * np.pi/2],
-        "forearm":   [0.0, 0.0, 0.027, np.pi/2, 0.0, -np.pi/2],
-        "wrist1":    [0.0, 0.0, -0.104, np.pi/2, 0.0, 0.0],
-        "wrist2":    [0.0, 0.0, -0.08535, 0.0, 0.0, 0.0],
-        "wrist3":    [0.0, 0.0, -0.0921, np.pi/2, 0.0, 0.0],
-    }
-# Link order for UR3e
-link_order = ['base', 'shoulder', 'upperarm', 'forearm', 'wrist1', 'wrist2', 'wrist3']
+theta_min = [-6.283] * 6
+theta_max = [ 6.283] * 6
+
+link_order = ['base', 'shoulder', 'upperarm', 'forearm',
+              'wrist1', 'wrist2', 'wrist3']
+
+visual_offset = {
+            'base':     (0, 0, np.pi,            0, 0,       0),
+            'shoulder': (0, 0, np.pi,            0, 0,       0),
+            'upperarm': (np.pi/2, 0, -np.pi/2,   0, 0, 0.12),
+            'forearm':  (np.pi/2, 0, -np.pi/2,   0, 0, 0.027),
+            'wrist1':   (np.pi/2, 0, 0,          0, 0, -0.104),
+            'wrist2':   (0, 0, 0,                0, 0, -0.08535),
+            'wrist3':   (np.pi/2, 0, 0,          0, 0, -0.0921),
+        }
+
 
 class URRobot(torch.nn.Module):
     def __init__(self, device='cpu', mesh_path='ur3e/model/'):
         super().__init__()
-        self.device = device
+        self.device    = device
         self.mesh_path = mesh_path
-        self.meshes = self.load_mesh()
+        self.meshes    = self.load_mesh()
         self.robot, self.robot_faces, self.robot_normals = zip(*[
-            self.meshes[link] for link in link_order if link in self.meshes
+            self.meshes[link] for link in link_order
         ])
-    
-    def visual_offset(self, name, batch_size=1):
-        x, y, z, roll, pitch, yaw = offsets[name]
-        dtype = torch.float32
-        device = self.device
 
-        Rx = torch.tensor([
-            [1, 0, 0, 0],
-            [0, np.cos(roll), -np.sin(roll), 0],
-            [0, np.sin(roll),  np.cos(roll), 0],
-            [0, 0, 0, 1]
-        ], dtype=dtype, device=device)
+    def Rx(self, r):
+        c, s = np.cos(r), np.sin(r)
+        return torch.tensor([[1, 0, 0, 0],
+                             [0, c,-s, 0],
+                             [0, s, c, 0],
+                             [0, 0, 0, 1]], dtype=torch.float32, device=self.device)
 
-        Ry = torch.tensor([
-            [np.cos(pitch), 0, np.sin(pitch), 0],
-            [0, 1, 0, 0],
-            [-np.sin(pitch), 0, np.cos(pitch), 0],
-            [0, 0, 0, 1]
-        ], dtype=dtype, device=device)
+    def Ry(self, p):
+        c, s = np.cos(p), np.sin(p)
+        return torch.tensor([[ c, 0, s, 0],
+                             [ 0, 1, 0, 0],
+                             [-s, 0, c, 0],
+                             [ 0, 0, 0, 1]], dtype=torch.float32, device=self.device)
 
-        Rz = torch.tensor([
-            [np.cos(yaw), -np.sin(yaw), 0, 0],
-            [np.sin(yaw),  np.cos(yaw), 0, 0],
-            [0, 0, 1, 0],
-            [0, 0, 0, 1]
-        ], dtype=dtype, device=device)
+    def Rz(self, y):
+        c, s = np.cos(y), np.sin(y)
+        return torch.tensor([[c,-s, 0, 0],
+                             [s, c, 0, 0],
+                             [0, 0, 1, 0],
+                             [0, 0, 0, 1]], dtype=torch.float32, device=self.device)
 
-        T = torch.tensor([
-            [1, 0, 0, x],
-            [0, 1, 0, y],
-            [0, 0, 1, z],
-            [0, 0, 0, 1]
-        ], dtype=dtype, device=device)
+    def T(self, x, y, z):
+        return torch.tensor([[1, 0, 0, x],
+                             [0, 1, 0, y],
+                             [0, 0, 1, z],
+                             [0, 0, 0, 1]], dtype=torch.float32, device=self.device)
 
-        single_T = T @ Rz @ Ry @ Rx
-        # single_T = Rz @ Ry @ Rx
-        return single_T.unsqueeze(0).repeat(batch_size, 1, 1)
-        
-    # Get the transformation matrix for each link vertices and normal
-    def get_transformation_vertices_normals(self, vertices, normals, T, batch_size, name):
-        vertices = vertices.repeat(batch_size, 1, 1)
-        normals = normals.repeat(batch_size, 1, 1)
-        T_offset = self.visual_offset(name, batch_size)
-        # vertices = torch.matmul(torch.matmul(T, T_offset), vertices.transpose(2, 1)).transpose(1, 2)[:, :, :3]
-        # normals = torch.matmul(torch.matmul(T, T_offset), normals.transpose(2, 1)).transpose(1, 2)[:, :, :3]
-        vertices = torch.matmul(T, vertices.transpose(2, 1)).transpose(1, 2)[:, :, :3]
-        normals = torch.matmul(T, normals.transpose(2, 1)).transpose(1, 2)[:, :, :3]
-        return vertices, normals
-    
-    # Forward for UR
+    def T_origin(self, roll, pitch, yaw, x, y, z):
+        return (self.T(x, y, z) @
+                self.Rz(yaw) @ self.Ry(pitch) @ self.Rx(roll))
+
+
+    def get_transformations_each_link(self, pose, theta):
+        B = theta.size(0)
+        Ts = [[] for _ in range(7)]
+        for b in range(B):
+            q  = theta[b]
+            T0 = pose[b] @ self.T_origin(0, 0, np.pi, 0, 0, 0)
+            T01 = self.T_origin(0, 0, 0,           0,        0, 0.15185) @ self.Rz(q[0])
+            T12 = self.T_origin(np.pi/2, 0, 0,     0,        0, 0)       @ self.Rz(q[1])
+            T23 = self.T_origin(0, 0, 0,          -0.24355,  0, 0)       @ self.Rz(q[2])
+            T34 = self.T_origin(0, 0, 0,          -0.2132,   0, 0.13105) @ self.Rz(q[3])
+            T45 = self.T_origin(np.pi/2, 0, 0,     0, -0.08535, 0)       @ self.Rz(q[4])
+            T56 = self.T_origin(np.pi/2, np.pi, np.pi, 0, 0.0921, 0)     @ self.Rz(q[5])
+
+            T1 = T0 @ T01
+            T2 = T1 @ T12
+            T3 = T2 @ T23
+            T4 = T3 @ T34
+            T5 = T4 @ T45
+            T6 = T5 @ T56
+
+            for i, Ti in enumerate([T0, T1, T2, T3, T4, T5, T6]):
+                Ts[i].append(Ti)
+        return [torch.stack(t, 0) for t in Ts]
+
+    def _transform_vn(self, v, n, T, B):
+        v = v.repeat(B, 1, 1)
+        n = n.repeat(B, 1, 1)
+        v = (T @ v.transpose(2,1)).transpose(1,2)[:,:,:3]
+        n = (T @ n.transpose(2,1)).transpose(1,2)[:,:,:3]
+        return v, n
+
     def forward(self, pose, theta):
-        
-        batch_size = theta.shape[0]
-        T = self.get_transformations_each_link(pose, theta)
-        transformation_vertices, transformation_normals = zip(*[
-            self.get_transformation_vertices_normals(self.robot[idx], self.robot_normals[idx], T[idx], batch_size, link_order[idx])
-            for idx in range(len(self.robot))
-        ])
+        B      = theta.size(0)
+        T_link = self.get_transformations_each_link(pose, theta)
+        verts, norms = [], []
+        for i, link in enumerate(link_order):
+            T_vis = T_link[i] @ self.T_origin(*visual_offset[link])
+            v, n  = self._transform_vn(self.robot[i], self.robot_normals[i],
+                                       T_vis, B)
+            verts.append(v); norms.append(n)
+        return verts + norms
 
-        return transformation_vertices + transformation_normals
-        
-    # Transformations matrix
-    def get_transformations_each_link(self,pose, theta):
-        batch_size = theta.shape[0]
-        T_prev_to_cur = []
-        for idx in range(6):
-            T_prev_to_cur.append(self.forward_kinematics(A[idx], torch.tensor(alpha[idx], dtype=torch.float32, device=self.device),
-                                        d[idx], theta[:, idx], batch_size).float())        
-        pose_to_each_link = [pose]
-        for i in range(6):
-            pose_to_each_link.append(torch.matmul(pose_to_each_link[i], T_prev_to_cur[i]))
-        
-        return pose_to_each_link
-    
-    def get_robot_mesh(self, vertices_list, face):
-        robot_mesh = []
-        for i in range(len(vertices_list)):
-            mesh = trimesh.Trimesh(vertices=vertices_list[i], faces=face[i])
-            robot_mesh.append(mesh)
-        return robot_mesh
-    
-    # DH transformation matrix for each link
-    def forward_kinematics(self, A, alpha, D, theta, batch_size=1):
-        
-        theta = theta.view(batch_size, -1)
-        alpha = alpha*torch.ones_like(theta)
-        c_theta = torch.cos(theta)
-        s_theta = torch.sin(theta)
-        c_alpha = torch.cos(alpha)
-        s_alpha = torch.sin(alpha)
 
-        l_1_to_l = torch.cat([c_theta, -s_theta * c_alpha, s_theta * s_alpha, A * torch.ones_like(c_theta)* c_theta,
-                             s_theta, c_theta * c_alpha, -c_theta * s_alpha, A * torch.ones_like(c_theta) * s_theta,
-                             torch.zeros_like(s_theta), s_alpha, c_alpha, D * torch.ones_like(c_theta),
-                              torch.zeros_like(s_theta), torch.zeros_like(s_theta), torch.zeros_like(s_theta), torch.ones_like(s_theta)], dim=1).reshape(batch_size, 4, 4)
-        
-        return l_1_to_l
-    
+    def _make_mesh_batch(self, v_list, f_list):
+        return [trimesh.Trimesh(vertices=v.cpu().numpy(),
+                                faces=f.cpu().numpy(),
+                                process=False)
+                for v, f in zip(v_list, f_list)]
+
     def get_forward_robot_mesh(self, pose, theta):
-        batch_size = pose.size()[0]
-        outputs = self.forward(pose, theta)
-        
-        vertices_list = [[
-            outputs[0][i], outputs[1][i], outputs[2][i], outputs[3][i],
-            outputs[4][i], outputs[5][i], outputs[6][i]
-        ] for i in range(batch_size)]
-        
-        mesh = [self.get_robot_mesh(vertices, self.robot_faces) for vertices in vertices_list]
-        return mesh
-        
-       
-    
-    # Load the mesh files
+        B = pose.size(0)
+        out = self.forward(pose, theta)
+        verts = out[:7]
+        batches = []
+        for b in range(B):
+            meshes = self._make_mesh_batch([v[b] for v in verts],
+                                           self.robot_faces)
+            batches.append(trimesh.util.concatenate(meshes))
+        return batches
+
+
     def load_mesh(self):
-        mesh_files = [f for f in os.listdir(self.mesh_path) if f.endswith('.stl')]
         meshes = {}
-
-        for mesh_file in mesh_files:
-            full_path = os.path.join(self.mesh_path, mesh_file)
-            mesh = trimesh.load(full_path)
-            name = os.path.splitext(mesh_file)[0]
-
-            tmp = torch.ones(len(mesh.vertices), 1).float()
-            vertices = torch.cat((torch.FloatTensor(mesh.vertices), tmp), dim=-1).to(self.device)
-            normals = torch.cat((torch.FloatTensor(mesh.vertex_normals), tmp), dim=-1).to(self.device)
-            faces = torch.LongTensor(mesh.faces).to(self.device)
-
-            if name in offsets:
-                T_offset = self.visual_offset(name, batch_size=1)[0]
-                vertices = (T_offset @ vertices.T).T
-                normals = (T_offset @ normals.T).T
-
-            meshes[name] = [vertices, faces, normals]
-
+        for f in os.listdir(self.mesh_path):
+            if not f.endswith('.stl'):
+                continue
+            m = trimesh.load(os.path.join(self.mesh_path, f))
+            name = os.path.splitext(f)[0]
+            ones = torch.ones(len(m.vertices), 1)
+            v = torch.tensor(m.vertices, dtype=torch.float32)
+            n = torch.tensor(m.vertex_normals, dtype=torch.float32)
+            meshes[name] = [
+                torch.cat((v, ones), -1).to(self.device),
+                torch.tensor(m.faces, dtype=torch.long).to(self.device),
+                torch.cat((n, ones), -1).to(self.device)
+            ]
         return meshes
+
+
 
 def main():
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
-    ur_robot = URRobot(device='cuda' if torch.cuda.is_available() else 'cpu')
-    print("Loaded meshes:")
-    # for name, mesh in meshes.items():
-    #     print(f"Loaded mesh: {name}")
-    #     print(f"Vertices: {mesh[0].shape}, Faces: {mesh[1].shape}, Normals: {mesh[2].shape}")
-    
-    theta = torch.zeros(1, 6).to(device)
-    print(f"Random theta: {theta}")
-    pose = torch.from_numpy(np.identity(4)).to(device).reshape(-1, 4, 4).expand(len(theta),-1,-1).float()
-    print(f"Pose: {pose}")
-    robot_mesh = ur_robot.get_forward_robot_mesh(pose, theta)
-    robot_mesh = np.sum(robot_mesh)
+    ur = URRobot(device=device, mesh_path='ur3e/model/')
+
+    theta = torch.ones(1, 6, device=device)     
+    pose  = torch.eye(4, device=device).unsqueeze(0)
+
+    mesh = ur.get_forward_robot_mesh(pose, theta)[0]
     os.makedirs('output_meshes', exist_ok=True)
-    trimesh.exchange.export.export_mesh(robot_mesh, os.path.join('output_meshes',f"whole_body_levelset_0.stl"))
-    robot_mesh.show()
+    mesh.export('output_meshes/ur3e_zero_pose.stl')
+    print('Export to output_meshes/ur3e_zero_pose.stl')
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     main()
