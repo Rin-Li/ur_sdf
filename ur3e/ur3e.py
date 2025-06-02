@@ -147,7 +147,8 @@ def main():
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     ur = URRobot(device=device, mesh_path='ur3e/model/')
 
-    theta = torch.ones(1, 6, device=device)     
+    theta = torch.ones(1, 6, device=device)
+    theta = torch.randn(1, 6, device=device)
     pose  = torch.eye(4, device=device).unsqueeze(0)
 
     mesh = ur.get_forward_robot_mesh(pose, theta)[0]
