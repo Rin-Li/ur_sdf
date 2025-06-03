@@ -14,6 +14,8 @@ import trimesh
 import utils
 import mesh_to_sdf
 import skimage
+import sys
+sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 from ur3e.ur3e import URRobot
 import argparse
 
@@ -70,9 +72,10 @@ class BPSDF():
 
     def train_bf_sdf(self,epoches=200):
         # represent SDF using basis functions
-        mesh_path = os.path.join(CUR_DIR,"panda_layer/meshes/voxel_128/*")
+        # 修改为UR3e模型路径
+        mesh_path = os.path.join(CUR_DIR,"../ur3e/model/*.stl")
         mesh_files = glob.glob(mesh_path)
-        mesh_files = sorted(mesh_files)[1:] #except finger
+        mesh_files = sorted(mesh_files)  # 不需要排除任何文件
         mesh_dict = {}
         for i,mf in enumerate(mesh_files):
             mesh_name = mf.split('/')[-1].split('.')[0]
@@ -83,7 +86,11 @@ class BPSDF():
             mesh_dict[i] = {}
             mesh_dict[i]['mesh_name'] = mesh_name
             # load data
-            data = np.load(f'./data/sdf_points/voxel_128_{mesh_name}.npy',allow_pickle=True).item()
+            data_path = f'data/sdf_points/ur3e_{mesh_name}.npy'
+            if not os.path.exists(data_path):
+                print(f"Warning: {data_path} not found, skipping {mesh_name}")
+                continue
+            data = np.load(data_path,allow_pickle=True).item()
             point_near_data = data['near_points']
             sdf_near_data = data['near_sdf']
             point_random_data = data['random_points']
@@ -164,8 +171,8 @@ class BPSDF():
                     os.mkdir(save_path)
                 trimesh.exchange.export.export_mesh(rec_mesh, os.path.join(save_path,f"{save_mesh_name}_{mesh_name}.stl"))
 
-    def get_whole_body_sdf_batch(self,x,pose,theta,model,use_derivative = True, used_links = [0,1,2,3,4,5,6,7,8],return_index=False):
-
+    def get_whole_body_sdf_batch(self,x,pose,theta,model,use_derivative = True, used_links = [0,1,2,3,4,5,6],return_index=False):
+        # 修改默认used_links为UR3e的7个链接（0-6）
         B = len(theta)
         N = len(x)
         K = len(used_links)
@@ -230,29 +237,30 @@ class BPSDF():
                 return sdf_value, gradient_value, idx
             return sdf_value, gradient_value
 
-    def get_whole_body_sdf_with_joints_grad_batch(self,x,pose,theta,model,used_links = [0,1,2,3,4,5,6,7,8]):
-
+    def get_whole_body_sdf_with_joints_grad_batch(self,x,pose,theta,model,used_links = [0,1,2,3,4,5,6]):
+        # 修改为6个关节的UR3e
         delta = 0.001
         B = theta.shape[0]
         theta = theta.unsqueeze(1)
-        d_theta = (theta.expand(B,7,7)+ torch.eye(7,device=self.device).unsqueeze(0).expand(B,7,7)*delta).reshape(B,-1,7)
-        theta = torch.cat([theta,d_theta],dim=1).reshape(B*8,7)
-        pose = pose.unsqueeze(1).expand(B,8,4,4).reshape(B*8,4,4)
+        d_theta = (theta.expand(B,6,6)+ torch.eye(6,device=self.device).unsqueeze(0).expand(B,6,6)*delta).reshape(B,-1,6)
+        theta = torch.cat([theta,d_theta],dim=1).reshape(B*7,6)  # 6个关节，7个变化(原始+6个微分)
+        pose = pose.unsqueeze(1).expand(B,7,4,4).reshape(B*7,4,4)
         sdf,_ = self.get_whole_body_sdf_batch(x,pose,theta,model,use_derivative = False, used_links = used_links)
-        sdf = sdf.reshape(B,8,-1)
+        sdf = sdf.reshape(B,7,-1)
         d_sdf = (sdf[:,1:,:]-sdf[:,:1,:])/delta
         return sdf[:,0,:],d_sdf.transpose(1,2)
 
-    def get_whole_body_normal_with_joints_grad_batch(self,x,pose,theta,model,used_links = [0,1,2,3,4,5,6,7,8]):
+    def get_whole_body_normal_with_joints_grad_batch(self,x,pose,theta,model,used_links = [0,1,2,3,4,5,6]):
+        # 修改为6个关节的UR3e
         delta = 0.001
         B = theta.shape[0]
         theta = theta.unsqueeze(1)
-        d_theta = (theta.expand(B,7,7)+ torch.eye(7,device=self.device).unsqueeze(0).expand(B,7,7)*delta).reshape(B,-1,7)
-        theta = torch.cat([theta,d_theta],dim=1).reshape(B*8,7)
-        pose = pose.unsqueeze(1).expand(B,8,4,4).reshape(B*8,4,4)
+        d_theta = (theta.expand(B,6,6)+ torch.eye(6,device=self.device).unsqueeze(0).expand(B,6,6)*delta).reshape(B,-1,6)
+        theta = torch.cat([theta,d_theta],dim=1).reshape(B*7,6)  # 6个关节，7个变化(原始+6个微分)
+        pose = pose.unsqueeze(1).expand(B,7,4,4).reshape(B*7,4,4)
         sdf, normal = self.get_whole_body_sdf_batch(x,pose,theta,model,use_derivative = True, used_links = used_links)
-        normal = normal.reshape(B,8,-1,3).transpose(1,2)
-        return normal # normal size: (B,N,8,3) normal[:,:,0,:] origin normal vector normal[:,:,1:,:] derivatives with respect to joints
+        normal = normal.reshape(B,7,-1,3).transpose(1,2)
+        return normal # normal size: (B,N,7,3) normal[:,:,0,:] origin normal vector normal[:,:,1:,:] derivatives with respect to joints
 
 if __name__ =='__main__':
 
@@ -264,8 +272,9 @@ if __name__ =='__main__':
     parser.add_argument('--train', action='store_true')
     args = parser.parse_args()
 
-    panda = PandaLayer(args.device)
-    bp_sdf = BPSDF(args.n_func,args.domain_min,args.domain_max,panda,args.device)
+    # 修改为UR3e机器人
+    ur3e = URRobot(args.device)
+    bp_sdf = BPSDF(args.n_func,args.domain_min,args.domain_max,ur3e,args.device)
     
     # #  train Bernstein Polynomial model   
     if args.train:
@@ -273,27 +282,26 @@ if __name__ =='__main__':
 
     # load trained model
     model_path = f'models/BP_{args.n_func}.pt'
-    model = torch.load(model_path)
-    
-    # visualize the Bernstein Polynomial model for each robot link
-    bp_sdf.create_surface_mesh(model,nbData=128,vis=True,save_mesh_name=f'BP_{args.n_func}')
+    if os.path.exists(model_path):
+        model = torch.load(model_path)
+        
+        # visualize the Bernstein Polynomial model for each robot link
+        bp_sdf.create_surface_mesh(model,nbData=128,vis=True,save_mesh_name=f'BP_{args.n_func}')
 
-    # visualize the Bernstein Polynomial model for the whole body
-    theta = torch.tensor([0, -0.3, 0, -2.2, 0, 2.0, np.pi/4]).float().to(args.device).reshape(-1,7)
-    pose = torch.from_numpy(np.identity(4)).to(args.device).reshape(-1, 4, 4).expand(len(theta),4,4).float()
-    trans_list = panda.get_transformations_each_link(pose,theta)
-    utils.visualize_reconstructed_whole_body(model, trans_list, tag=f'BP_{args.n_func}')
-    
-    # run RDF 
-    x = torch.rand(128,3).to(args.device)*2.0 - 1.0
-    theta = torch.rand(2,7).to(args.device).float()
-    pose = torch.from_numpy(np.identity(4)).unsqueeze(0).to(args.device).expand(len(theta),4,4).float()
-    sdf,gradient = bp_sdf.get_whole_body_sdf_batch(x,pose,theta,model,use_derivative=True)
-    print('sdf:',sdf.shape,'gradient:',gradient.shape)
-    sdf,joint_grad = bp_sdf.get_whole_body_sdf_with_joints_grad_batch(x,pose,theta,model)
-    print('sdf:',sdf.shape,'joint gradient:',joint_grad.shape)
-
-
-
-
-
+        # visualize the Bernstein Polynomial model for the whole body
+        # 修改为6个关节角度
+        theta = torch.tensor([0, -0.3, 0, -2.2, 0, 2.0]).float().to(args.device).reshape(-1,6)
+        pose = torch.from_numpy(np.identity(4)).to(args.device).reshape(-1, 4, 4).expand(len(theta),4,4).float()
+        trans_list = ur3e.get_transformations_each_link(pose,theta)
+        utils.visualize_reconstructed_whole_body(model, trans_list, tag=f'BP_{args.n_func}')
+        
+        # run RDF 
+        x = torch.rand(128,3).to(args.device)*2.0 - 1.0
+        theta = torch.rand(2,6).to(args.device).float()  # 修改为6个关节
+        pose = torch.from_numpy(np.identity(4)).unsqueeze(0).to(args.device).expand(len(theta),4,4).float()
+        sdf,gradient = bp_sdf.get_whole_body_sdf_batch(x,pose,theta,model,use_derivative=True)
+        print('sdf:',sdf.shape,'gradient:',gradient.shape)
+        sdf,joint_grad = bp_sdf.get_whole_body_sdf_with_joints_grad_batch(x,pose,theta,model)
+        print('sdf:',sdf.shape,'joint gradient:',joint_grad.shape)
+    else:
+        print(f"Model file {model_path} not found. Please run with --train flag first.")

@@ -8,8 +8,6 @@ import skimage
 
 mesh_path = os.path.dirname(os.path.realpath(__file__)) + "/model/*.stl"
 mesh_files = glob.glob(mesh_path)
-print(mesh_files)
-mesh_files = sorted(mesh_files)[1:] #except finger
 voxel_resolution = 128
 for mf in mesh_files:
     mesh_name = mf.split('/')[-1].split('_')[0]
@@ -35,9 +33,13 @@ for mf in mesh_files:
     mesh_voxelized.vertices = mesh_voxelized.vertices/scale
     mesh_voxelized.vertices = mesh_voxelized.vertices - mesh_voxelized.bounding_box.centroid +center
     print(mesh_voxelized.vertices.shape)
-    scene.add_geometry(mesh_voxelized)
-    scene.show()
-    save_path = os.path.join(os.path.dirname(os.path.realpath(__file__)),f'/voxel_128/voxel_{str(voxel_resolution)}')
-    if os.path.exists(save_path) is not True:
-        os.mkdir(save_path)
+    # scene.add_geometry(mesh_voxelized)
+    # scene.show()
+
+    base_dir = os.path.dirname(os.path.realpath(__file__))
+
+    save_path = os.path.join(base_dir, 'voxel_128')
+
+
+    os.makedirs(save_path, exist_ok=True)
     trimesh.exchange.export.export_mesh(mesh_voxelized, os.path.join(save_path,f'{mesh_name}.stl'))

@@ -7,7 +7,8 @@ import skimage
 import pyrender
 import torch
 
-mesh_path = os.path.join(os.getcwd(), 'ur3e', 'model') 
+mesh_path = os.path.join(os.getcwd(), 'ur3e', 'voxel_128') 
+print(mesh_path)
 mesh_files = glob.glob(os.path.join(mesh_path, '*.stl'))
 link_order = ['base', 'shoulder', 'upperarm', 'forearm', 'wrist1', 'wrist2', 'wrist3']
 
@@ -22,7 +23,7 @@ for mf in mesh_files:
     #Sample points near surface
     near_points, near_sdf = mesh_to_sdf.sample_sdf_near_surface(mesh, 
                                                       number_of_points = 500000, 
-                                                      surface_point_method='sample', 
+                                                      surface_point_method='scan', 
                                                       sign_method='normal', 
                                                       scan_count=100, 
                                                       scan_resolution=400, 
@@ -34,7 +35,7 @@ for mf in mesh_files:
     random_points = np.random.rand(500000,3)*2.0-1.0
     random_sdf = mesh_to_sdf.mesh_to_sdf(mesh, 
                                      random_points, 
-                                     surface_point_method='sample', 
+                                     surface_point_method='scan', 
                                      sign_method='normal', 
                                      bounding_radius=None, 
                                      scan_count=100, 
@@ -56,16 +57,16 @@ for mf in mesh_files:
         os.makedirs(save_path)
     np.save(os.path.join(save_path, f'ur3e_{mesh_name}.npy'), data)
     
-    # data = np.load(os.path.join(os.path.join(os.path.dirname(os.path.realpath(__file__)),f'data/sdf_points/voxel_128_{mesh_name}.npy')), allow_pickle=True).item()
-    # random_points = data['random_points']
-    # random_sdf = data['random_sdf']
-    # near_points = data['near_points']
-    # near_sdf = data['near_sdf']
-    # colors = np.zeros(random_points.shape)
-    # colors[random_sdf < 0, 2] = 1
-    # colors[random_sdf > 0, 0] = 1
-    # cloud = pyrender.Mesh.from_points(random_points, colors=colors)
-    # scene = pyrender.Scene()
-    # scene.add(cloud)
-    # viewer = pyrender.Viewer(scene, use_raymond_lighting=True, point_size=2)
+    data = np.load(os.path.join(os.path.join(os.path.dirname(os.path.realpath(__file__)),f'data/sdf_points/ur3e_{mesh_name}.npy')), allow_pickle=True).item()
+    random_points = data['random_points']
+    random_sdf = data['random_sdf']
+    near_points = data['near_points']
+    near_sdf = data['near_sdf']
+    colors = np.zeros(random_points.shape)
+    colors[random_sdf < 0, 2] = 1
+    colors[random_sdf > 0, 0] = 1
+    cloud = pyrender.Mesh.from_points(random_points, colors=colors)
+    scene = pyrender.Scene()
+    scene.add(cloud)
+    viewer = pyrender.Viewer(scene, use_raymond_lighting=True, point_size=2)
     
