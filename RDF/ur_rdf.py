@@ -1,10 +1,3 @@
-# -----------------------------------------------------------------------------
-# SPDX-License-Identifier: MIT
-# This file is part of the RDF project.
-# Copyright (c) 2023 Idiap Research Institute <contact@idiap.ch>
-# Contributor: Yimming Li <yiming.li@idiap.ch>
-# -----------------------------------------------------------------------------
-
 import torch
 import os
 import numpy as np
@@ -86,7 +79,7 @@ class BPSDF():
             mesh_dict[i] = {}
             mesh_dict[i]['mesh_name'] = mesh_name
             # load data
-            data_path = f'data/sdf_points/ur3e_{mesh_name}.npy'
+            data_path = os.path.join(CUR_DIR, 'data', 'sdf_points', f'ur3e_{mesh_name}.npy')
             if not os.path.exists(data_path):
                 print(f"Warning: {data_path} not found, skipping {mesh_name}")
                 continue
@@ -99,7 +92,7 @@ class BPSDF():
             wb = torch.zeros(self.n_func**3).float().to(self.device)
             B = (torch.eye(self.n_func**3)/1e-4).float().to(self.device)
             # loss_list = []
-            for iter in range(epoches):
+            for _ in range(epoches):
                 choice_near = np.random.choice(len(point_near_data),1024,replace=False)
                 p_near,sdf_near = torch.from_numpy(point_near_data[choice_near]).float().to(self.device),torch.from_numpy(sdf_near_data[choice_near]).float().to(self.device)
                 choice_random = np.random.choice(len(point_random_data),256,replace=False)
@@ -114,7 +107,8 @@ class BPSDF():
                 # loss = torch.nn.functional.mse_loss(torch.matmul(phi_xyz,wb).squeeze(), sdf, reduction='mean').item()
                 # loss_list.append(loss)
                 wb += delta_wb
-
+            
+            print(wb.shape)
             print(f'mesh name {mesh_name} finished!')
             mesh_dict[i] ={
                 'mesh_name':     mesh_name,
@@ -125,7 +119,7 @@ class BPSDF():
             }
         if os.path.exists(self.model_path) is False:
             os.mkdir(self.model_path)
-        torch.save(mesh_dict,f'{self.model_path}/BP_{self.n_func}.pt') # save the robot sdf model
+        torch.save(mesh_dict,f'{self.model_path}/BP_{self.n_func}.pt') 
         print(f'{self.model_path}/BP_{self.n_func}.pt model saved!')
 
     def sdf_to_mesh(self, model, nbData,use_derivative=False):
@@ -163,8 +157,8 @@ class BPSDF():
         verts_list, faces_list,mesh_name_list = self.sdf_to_mesh(model, nbData)
         for verts, faces,mesh_name in zip(verts_list, faces_list,mesh_name_list):
             rec_mesh = trimesh.Trimesh(verts,faces)
-            if vis:
-                rec_mesh.show()
+            # if vis:
+            #     rec_mesh.show()
             if save_mesh_name != None:
                 save_path = os.path.join(CUR_DIR,"output_meshes")
                 if os.path.exists(save_path) is False:
@@ -281,23 +275,23 @@ if __name__ =='__main__':
         bp_sdf.train_bf_sdf()
 
     # load trained model
-    model_path = f'models/BP_{args.n_func}.pt'
+    model_path = os.path.join(CUR_DIR, 'models', f'BP_{args.n_func}.pt')
     if os.path.exists(model_path):
         model = torch.load(model_path)
         
         # visualize the Bernstein Polynomial model for each robot link
-        bp_sdf.create_surface_mesh(model,nbData=128,vis=True,save_mesh_name=f'BP_{args.n_func}')
+        # bp_sdf.create_surface_mesh(model,nbData=128,vis=True,save_mesh_name=f'BP_{args.n_func}')
 
-        # visualize the Bernstein Polynomial model for the whole body
-        # 修改为6个关节角度
-        theta = torch.tensor([0, -0.3, 0, -2.2, 0, 2.0]).float().to(args.device).reshape(-1,6)
-        pose = torch.from_numpy(np.identity(4)).to(args.device).reshape(-1, 4, 4).expand(len(theta),4,4).float()
-        trans_list = ur3e.get_transformations_each_link(pose,theta)
-        utils.visualize_reconstructed_whole_body(model, trans_list, tag=f'BP_{args.n_func}')
+        # # visualize the Bernstein Polynomial model for the whole body
+        # # 修改为6个关节角度
+        # theta = torch.tensor([0, -0.3, 0, -2.2, 0, 2.0]).float().to(args.device).reshape(-1,6)
+        # pose = torch.from_numpy(np.identity(4)).to(args.device).reshape(-1, 4, 4).expand(len(theta),4,4).float()
+        # trans_list = ur3e.get_transformations_each_link(pose,theta)
+        # utils.visualize_reconstructed_whole_body(model, trans_list, tag=f'BP_{args.n_func}')
         
         # run RDF 
         x = torch.rand(128,3).to(args.device)*2.0 - 1.0
-        theta = torch.rand(2,6).to(args.device).float()  # 修改为6个关节
+        theta = torch.rand(2,6).to(args.device).float() 
         pose = torch.from_numpy(np.identity(4)).unsqueeze(0).to(args.device).expand(len(theta),4,4).float()
         sdf,gradient = bp_sdf.get_whole_body_sdf_batch(x,pose,theta,model,use_derivative=True)
         print('sdf:',sdf.shape,'gradient:',gradient.shape)

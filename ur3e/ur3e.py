@@ -28,6 +28,8 @@ kinematic = {
     'wrist3'    : (np.pi/2, np.pi, np.pi, 0, 0.0921, 0),
 }
 
+CUR_DIR = os.path.dirname(os.path.abspath(__file__))
+
 class URRobot(torch.nn.Module):
     def __init__(self, device='cpu', mesh_path='ur3e/model/'):
         super().__init__()
@@ -66,26 +68,31 @@ class URRobot(torch.nn.Module):
                              [0, 0, 0, 1]], dtype=torch.float32, device=self.device)
 
     def T_origin(self, roll, pitch, yaw, x, y, z):
-        return (self.T(x, y, z) @
-                self.Rz(yaw) @ self.Ry(pitch) @ self.Rx(roll))
+        return (self.T(x, y, z) @ self.Rz(yaw) @ self.Ry(pitch) @ self.Rx(roll))
 
 
     def get_transformations_each_link(self, pose, theta):
         B = theta.size(0)
         Ts = [[] for _ in range(7)]
+        T_offset = [self.T_origin(*visual_offset[link]) for link in link_order]
+
         for b in range(B):
             T_trans = [self.T_origin(*kinematic[link]) for link in link_order]
             T_trans[0] = pose[b] @ T_trans[0]
             # each link like T01 = T @ Rz(theta)
             for idx in range(1, 7):
                 T_trans[idx] @= self.Rz(theta[b, idx-1])
-            # Transfor matrxi like T2 = T1 @ T12
+            # Transform matrix like T2 = T1 @ T12
             T = [T_trans[0]]
             for idx in range(1, 7):
                 T.append(T[idx - 1] @ T_trans[idx])
             for i, Ti in enumerate(T):
                 Ts[i].append(Ti)
-        return [torch.stack(t, 0) for t in Ts]
+
+        return [
+            torch.stack([Ti @ t_off for Ti in t_list], dim=0)
+            for t_list, t_off in zip(Ts, T_offset)
+        ]
 
     def _transform_vn(self, v, n, T, B):
         v = v.repeat(B, 1, 1)
@@ -98,11 +105,10 @@ class URRobot(torch.nn.Module):
         B = theta.size(0)
         T_link = self.get_transformations_each_link(pose, theta)
         verts, norms = [], []
-        for i, link in enumerate(link_order):
-            T_vis = T_link[i] @ self.T_origin(*visual_offset[link])
-            v, n  = self._transform_vn(self.robot[i], self.robot_normals[i],
-                                       T_vis, B)
-            verts.append(v); norms.append(n)
+        for i, _ in enumerate(link_order):
+            v, n  = self._transform_vn(self.robot[i], self.robot_normals[i], T_link[i], B)
+            verts.append(v)
+            norms.append(n)
         return verts + norms
 
 
@@ -145,7 +151,8 @@ class URRobot(torch.nn.Module):
 
 def main():
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
-    ur = URRobot(device=device, mesh_path='ur3e/model/')
+    mesh_path = os.path.join(os.getcwd(), 'RDF', 'output_meshes')
+    ur = URRobot(device=device, mesh_path=mesh_path)
 
     theta = torch.ones(1, 6, device=device)
     theta = torch.randn(1, 6, device=device)

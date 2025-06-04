@@ -47,50 +47,70 @@ def print_eval(yhat,y,string='default'):
     res = [MAE,MSE,RMSE,MAE_near,MSE_near,RMSE_near,MAE_far,MSE_far,RMSE_far]
     return [r.item() for r in res]
 
-def eval_chamfer_distance(tag):
-    from chamfer_distance import ChamferDistance as chamfer_dist
-    mesh_path = os.path.join(CUR_DIR,"panda_layer/meshes/voxel_128/*")
-    mesh_files = glob.glob(mesh_path)
-    mesh_files = sorted(mesh_files)[1:] #except finger
-    res = []
-    for i,mf in enumerate(mesh_files):
-        scene = trimesh.Scene()
-        mesh_name = mf.split('/')[-1].split('.')[0]
-        mesh = trimesh.load(mf)
-        mesh = mesh_to_sdf.scale_to_unit_sphere(mesh)
-        # scene.add_geometry(mesh)
-        rec_mesh = trimesh.load(CUR_DIR +f'/output_meshes/{tag}_{mesh_name}.stl')
-        # rec_mesh.vertices = rec_mesh.vertices + [2.0,0,0]
-        # rec_mesh.visual.face_colors= [255,0,0,100]
-        # scene.add_geometry(rec_mesh)
+# def eval_chamfer_distance(tag):
+#     from chamfer_distance import ChamferDistance as chamfer_dist
+#     mesh_path = os.path.join(CUR_DIR,"panda_layer/meshes/voxel_128/*")
+#     mesh_files = glob.glob(mesh_path)
+#     mesh_files = sorted(mesh_files)[1:] #except finger
+#     res = []
+#     for i,mf in enumerate(mesh_files):
+#         scene = trimesh.Scene()
+#         mesh_name = mf.split('/')[-1].split('.')[0]
+#         mesh = trimesh.load(mf)
+#         mesh = mesh_to_sdf.scale_to_unit_sphere(mesh)
+#         # scene.add_geometry(mesh)
+#         rec_mesh = trimesh.load(CUR_DIR +f'/output_meshes/{tag}_{mesh_name}.stl')
+#         # rec_mesh.vertices = rec_mesh.vertices + [2.0,0,0]
+#         # rec_mesh.visual.face_colors= [255,0,0,100]
+#         # scene.add_geometry(rec_mesh)
 
-        mesh_points = trimesh.sample.sample_surface_even(mesh,30000)[0]
-        rec_mesh_points = trimesh.sample.sample_surface_even(rec_mesh,30000)[0]
+#         mesh_points = trimesh.sample.sample_surface_even(mesh,30000)[0]
+#         rec_mesh_points = trimesh.sample.sample_surface_even(rec_mesh,30000)[0]
 
-        chamfer = chamfer_dist()
-        x_near, y_near, xidx_near, yidx_near = chamfer(torch.from_numpy(mesh_points).float().unsqueeze(0).to('cuda'), 
-                            torch.from_numpy(rec_mesh_points).float().unsqueeze(0).to('cuda'))
-        cd_mean = (torch.mean(x_near) + torch.mean(y_near)).item()*1000.0
-        cd_max = (torch.max(x_near) + torch.max(y_near)).item()*1000.0
-        res.append(np.asarray([cd_mean, cd_max]))
-    cd_mean,cd_max =np.mean(res,axis=0)
-    return cd_mean,cd_max
+#         chamfer = chamfer_dist()
+#         x_near, y_near, xidx_near, yidx_near = chamfer(torch.from_numpy(mesh_points).float().unsqueeze(0).to('cuda'), 
+#                             torch.from_numpy(rec_mesh_points).float().unsqueeze(0).to('cuda'))
+#         cd_mean = (torch.mean(x_near) + torch.mean(y_near)).item()*1000.0
+#         cd_max = (torch.max(x_near) + torch.max(y_near)).item()*1000.0
+#         res.append(np.asarray([cd_mean, cd_max]))
+#     cd_mean,cd_max =np.mean(res,axis=0)
+#     return cd_mean,cd_max
 
-def visualize_reconstructed_whole_body(model, trans_list,tag):
-    mesh_path = os.path.join(CUR_DIR,f"output_meshes/{tag}_*.stl")
-    mesh_files = glob.glob(mesh_path)
-    mesh_files.sort()
+def visualize_reconstructed_whole_body(model, trans_list, tag):
+    mesh_dir = os.path.abspath(os.path.join(CUR_DIR, '../ur3e/model'))
+    mesh_files = sorted(glob.glob(os.path.join(mesh_dir, '*.stl')))
+    
+    link_order = ['base', 'shoulder', 'upperarm', 'forearm', 'wrist1', 'wrist2', 'wrist3']
     view_mat = np.array([[1,0,0,0],[0,0,1,0],[0,-1,0,0],[0,0,0,1]])
     scene = trimesh.Scene()
-    for i,mf in enumerate(mesh_files):
+    
+    for i, mf in enumerate(mesh_files):
         mesh = trimesh.load(mf)
-        mesh_dict = model[i]
-        offset = mesh_dict['offset'].cpu().numpy()
-        scale = mesh_dict['scale']
-        mesh.vertices = mesh.vertices*scale + offset
-        mesh.apply_transform(trans_list[i].squeeze().cpu().numpy())
+        mesh_name = os.path.basename(mf).split('.')[0]
+        
+        model_entry = None
+        trans_idx = None
+        
+        for k, v in model.items():
+            if 'mesh_name' in v and v['mesh_name'] == mesh_name:
+                model_entry = v
+                trans_idx = link_order.index(mesh_name) if mesh_name in link_order else i
+                break
+        
+        if model_entry is None:
+            print(f"Warning: No model entry found for {mesh_name}")
+            continue
+            
+        offset = model_entry['offset'].cpu().numpy()
+        scale = model_entry['scale']
+        mesh.vertices = mesh.vertices * scale + offset
+        
+        if trans_idx < len(trans_list):
+            mesh.apply_transform(trans_list[trans_idx].squeeze().cpu().numpy())
+        
         mesh.apply_transform(view_mat)
         scene.add_geometry(mesh)
+        
     scene.show()
 
 def rotation_matrix_from_vectors(vec1, vec2):
