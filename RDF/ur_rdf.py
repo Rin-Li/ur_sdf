@@ -65,10 +65,9 @@ class BPSDF():
 
     def train_bf_sdf(self,epoches=200):
         # represent SDF using basis functions
-        # 修改为UR3e模型路径
         mesh_path = os.path.join(CUR_DIR,"../ur3e/model/*.stl")
         mesh_files = glob.glob(mesh_path)
-        mesh_files = sorted(mesh_files)  # 不需要排除任何文件
+        mesh_files = sorted(mesh_files) 
         mesh_dict = {}
         for i,mf in enumerate(mesh_files):
             mesh_name = mf.split('/')[-1].split('.')[0]
@@ -166,7 +165,6 @@ class BPSDF():
                 trimesh.exchange.export.export_mesh(rec_mesh, os.path.join(save_path,f"{save_mesh_name}_{mesh_name}.stl"))
 
     def get_whole_body_sdf_batch(self,x,pose,theta,model,use_derivative = True, used_links = [0,1,2,3,4,5,6],return_index=False):
-        # 修改默认used_links为UR3e的7个链接（0-6）
         B = len(theta)
         N = len(x)
         K = len(used_links)
@@ -232,12 +230,11 @@ class BPSDF():
             return sdf_value, gradient_value
 
     def get_whole_body_sdf_with_joints_grad_batch(self,x,pose,theta,model,used_links = [0,1,2,3,4,5,6]):
-        # 修改为6个关节的UR3e
         delta = 0.001
         B = theta.shape[0]
         theta = theta.unsqueeze(1)
         d_theta = (theta.expand(B,6,6)+ torch.eye(6,device=self.device).unsqueeze(0).expand(B,6,6)*delta).reshape(B,-1,6)
-        theta = torch.cat([theta,d_theta],dim=1).reshape(B*7,6)  # 6个关节，7个变化(原始+6个微分)
+        theta = torch.cat([theta,d_theta],dim=1).reshape(B*7,6) 
         pose = pose.unsqueeze(1).expand(B,7,4,4).reshape(B*7,4,4)
         sdf,_ = self.get_whole_body_sdf_batch(x,pose,theta,model,use_derivative = False, used_links = used_links)
         sdf = sdf.reshape(B,7,-1)
@@ -245,12 +242,11 @@ class BPSDF():
         return sdf[:,0,:],d_sdf.transpose(1,2)
 
     def get_whole_body_normal_with_joints_grad_batch(self,x,pose,theta,model,used_links = [0,1,2,3,4,5,6]):
-        # 修改为6个关节的UR3e
         delta = 0.001
         B = theta.shape[0]
         theta = theta.unsqueeze(1)
         d_theta = (theta.expand(B,6,6)+ torch.eye(6,device=self.device).unsqueeze(0).expand(B,6,6)*delta).reshape(B,-1,6)
-        theta = torch.cat([theta,d_theta],dim=1).reshape(B*7,6)  # 6个关节，7个变化(原始+6个微分)
+        theta = torch.cat([theta,d_theta],dim=1).reshape(B*7,6) 
         pose = pose.unsqueeze(1).expand(B,7,4,4).reshape(B*7,4,4)
         sdf, normal = self.get_whole_body_sdf_batch(x,pose,theta,model,use_derivative = True, used_links = used_links)
         normal = normal.reshape(B,7,-1,3).transpose(1,2)
