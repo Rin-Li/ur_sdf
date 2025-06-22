@@ -151,11 +151,11 @@ class URRobot(torch.nn.Module):
 
 def main():
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
-    mesh_path = os.path.join(os.getcwd(), 'RDF', 'output_meshes')
-    ur = URRobot(device=device, mesh_path=mesh_path)
+    # mesh_path = os.path.join(os.getcwd(), 'RDF', 'output_meshes')
+    ur = URRobot(device=device)
 
     theta = torch.ones(1, 6, device=device)
-    theta = torch.randn(1, 6, device=device)
+    theta = torch.zeros(1, 6, device=device)
     pose  = torch.eye(4, device=device).unsqueeze(0)
 
     mesh = ur.get_forward_robot_mesh(pose, theta)[0]

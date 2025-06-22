@@ -1,5 +1,11 @@
 import torch
 import os
+os.environ['PYOPENGL_PLATFORM'] = 'egl'
+homebrew_lib_path = '/opt/homebrew/lib' # 假设是 Apple Silicon Mac
+if 'DYLD_LIBRARY_PATH' in os.environ:
+    os.environ['DYLD_LIBRARY_PATH'] = f"{homebrew_lib_path}:{os.environ['DYLD_LIBRARY_PATH']}"
+else:
+    os.environ['DYLD_LIBRARY_PATH'] = homebrew_lib_path
 import sys
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from ur3e.ur3e import URRobot
@@ -10,6 +16,9 @@ import trimesh
 import utils
 import argparse
 CUR_DIR = os.path.dirname(os.path.abspath(__file__))
+import os
+# Add these lines at the very top, before any other imports
+
 
 def plot_2D_ur_sdf(pose,theta,bp_sdf,nbData,model,device):
     domain_0 = torch.linspace(-1.0,1.0,nbData).to(device)
@@ -120,7 +129,7 @@ def generate_ur_mesh_sdf_points(max_dist =0.10):
         points = vert + np.random.uniform(-max_dist,max_dist,size=vert.shape)
         sdf = random_sdf = mesh_to_sdf.mesh_to_sdf(mesh, 
                                      points, 
-                                     surface_point_method='sample', 
+                                     surface_point_method='scan', 
                                      sign_method='normal', 
                                      bounding_radius=None, 
                                      scan_count=100, 
@@ -140,7 +149,7 @@ def vis_ur_sdf(pose, theta,device):
         points = data[k]['points']
         sdf = data[k]['sdf']
         print(points.shape, sdf.shape)
-        choice = (sdf <0.05) * (sdf>0.045)
+        choice = (sdf <0.1) * (sdf>0.045)
         points = points[choice]
         sdf = sdf[choice]
 
@@ -193,5 +202,5 @@ if __name__ =='__main__':
     # vis 3D SDF with gradient
     # generate_ur_mesh_sdf_points()
     # plot_3D_ur_with_gradient(pose,theta,bp_sdf,model=model,device=args.device)
-    # vis_ur_sdf(pose, theta,device=args.device)
-    plot_2D_ur_sdf(pose,theta,bp_sdf,nbData=80,model=model,device=args.device)
+    vis_ur_sdf(pose, theta,device=args.device)
+    # plot_2D_ur_sdf(pose,theta,bp_sdf,nbData=80,model=model,device=args.device)
