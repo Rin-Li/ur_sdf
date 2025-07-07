@@ -16,8 +16,9 @@ import time
 CUR_PATH = os.path.dirname(os.path.realpath(__file__))
 from mlp import MLPRegression
 sys.path.append(os.path.join(CUR_PATH,'../../RDF'))
-from panda_layer.panda_layer import PandaLayer
+from ur3e.ur3e import URRobot
 import bf_sdf
+import pytorch3d.ops 
 
 PI = math.pi
 # torch.manual_seed(10)
@@ -41,10 +42,9 @@ class CDF:
         self.max_q_per_link = 100
 
         # panda robot
-        self.panda = PandaLayer(device)
+        self.panda = URRobot(device)
 
     def process_data(self,data):
-        import pytorch3d.ops 
         keys = list(data.keys())  # Create a copy of the keys
         processed_data = {}
         for k in keys:

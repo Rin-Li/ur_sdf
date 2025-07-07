@@ -42,7 +42,7 @@ class DataGenerator():
 
     def compute_sdf(self,x,q,return_index = False):
         # x : (Nx,3)
-        # q : (Nq,7)
+        # q : (Nq,6)
         # return_index : if True, return the index of link that is closest to x
         # return d : (Nq)
         # return idx : (Nq) optional
@@ -105,7 +105,7 @@ class DataGenerator():
 
     def distance_q(self,x,q):
         # x : (Nx,3)
-        # q : (Np,7)
+        # q : (Np,6)
         # return d : (Np) distance between q and x in C space. d = min_{q*}{L2(q-q*)}. sdf(x,q*)=0
 
         # compute d
