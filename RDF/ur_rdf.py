@@ -4,7 +4,7 @@ import numpy as np
 np.set_printoptions(threshold=np.inf)
 import glob
 import trimesh
-import utils
+from RDF import utils
 import mesh_to_sdf
 import skimage
 import sys

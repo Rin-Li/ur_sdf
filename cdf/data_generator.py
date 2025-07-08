@@ -25,9 +25,9 @@ NUMBER_OF_JOINT = 6  # number of joints in the robot
 class DataGenerator():
     def __init__(self,device):
         # panda model
-        self.UR = URRobot()
+        self.UR = URRobot(device=device)
         self.bp_sdf = BPSDF(8,-1.0,1.0, self.UR,device)
-        self.model = torch.load(os.path.join(CUR_DIR,'../../RDF/models/BP_8.pt'))
+        self.model = torch.load(os.path.join(CUR_DIR,'../models/BP_8.pt'), weights_only=False)
         self.q_max = self.UR.theta_max
         self.q_min = self.UR.theta_min
         # device
