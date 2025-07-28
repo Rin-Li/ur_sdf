@@ -34,9 +34,9 @@ class DataGenerator():
         self.device = device
 
         # data generation
-        self.workspace = [[-0.5,-0.5,-0.5],[0.5,0.5,0.5]]
+        self.workspace = [[-0.35,-0.35,-0.35],[0.35,0.35,0.35]]
         self.n_disrete = 20         # total number of x: n_discrete**3
-        self.batchsize = 1    # batch size of q
+        self.batchsize = 100    # batch size of q
         # self.pose = torch.eye(4).unsqueeze(0).to(self.device).expand(self.batchsize,4,4).float()
         self.epsilon = 1e-3         # distance threshold to filter data
 
@@ -72,11 +72,9 @@ class DataGenerator():
             cost = torch.sum(d**2)
             return cost
         
-        t0 = time.time()
         # optimizer for data generation
         if q is None:
             q = torch.rand(batchsize,NUMBER_OF_JOINT).to(self.device)*(self.q_max-self.q_min)+self.q_min
-        q0 = copy.deepcopy(q)
         
         try:
             res = minimize(
@@ -87,7 +85,7 @@ class DataGenerator():
                 max_iter=50,
                 disp=0
                 )
-
+            
             d,idx = self.compute_sdf(x,res.x,return_index=True)
             
             # 确保 d 和 idx 至少是 1 维张量
@@ -186,7 +184,6 @@ class DataGenerator():
         start_time = time.time()
         valid_points = 0
         total_solutions = 0
-        
         for i,p in enumerate(pts):
             point_start = time.time()
             
@@ -218,7 +215,11 @@ class DataGenerator():
                             f"用时: {point_time:4.1f}s | "
                             f"剩余: {eta/60:4.1f}min | "
                             f"成功率: {valid_points/(i+1)*100:4.1f}%")
-                
+                if (i + 1) % 1000 == 0:
+                    intermediate_save_file = os.path.join(save_path, f'data_partial_{i+1}.npy')
+                    np.save(intermediate_save_file, data)
+                    print(f"🔃 中间数据已保存到: {intermediate_save_file}")
+                    
             except Exception as e:
                 print(f"✗ 点 {i+1} 处理失败: {e}")
                 data[i] = {
@@ -259,7 +260,7 @@ def analysis_data(x):
 
 
 if __name__ == "__main__":
-    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     # print(f"使用设备: {device}")
 
     # print("初始化 DataGenerator...")

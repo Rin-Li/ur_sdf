@@ -69,7 +69,7 @@ def MLP(channels, act_fn=ReLU, islast = False):
 
 
 class MLPRegression(nn.Module):
-    def __init__(self, input_dims=10, output_dims=1, mlp_layers=[128, 128, 128, 128, 128],skips=[2], act_fn=ReLU, nerf=True):
+    def __init__(self, input_dims=9, output_dims=1, mlp_layers=[128, 128, 128, 128, 128],skips=[2], act_fn=ReLU, nerf=True):
         """Create an instance of mlp nn model
         Args:
             input_dims (int): number of channels
